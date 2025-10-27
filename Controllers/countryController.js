@@ -11,35 +11,37 @@ const asyncHandler = fn => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
 };
 
+// Helper function to escape special characters for use in a regular expression
+const escapeRegex = (string) => {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
+};
+
 const refreshCountries = asyncHandler(async (req, res, next) => {
-  let countriesResponse, exchangeRatesResponse;
-
   try {
-    const [countriesResponse, exchangeRatesResponse] = await Promise.all([
-      axios.get(COUNTRIES_API_URL),
-      axios.get(EXCHANGE_RATE_API_URL)
-    ]);
-  } catch (error) {
-    const apiName = error.config?.url?.includes('restcountries') ? 'restcountries.com' : 'open.er-api.com';
-    console.error(`Error fetching data from ${apiName}:`, error.message);
-    // Send a 503 error and stop execution
-    return res.status(503).json({
-      error: "External data source unavailable",
-      details: `Could not fetch data from ${apiName}`
-    });
-  }
+    // Updated API URL to match the one defined in constants
+    const response = await fetch(COUNTRIES_API_URL);
+    if (!response.ok) {
+      throw new Error(`API request failed with status: ${response.status}`);
+    }
+    const countriesData = await response.json();
 
-    const countriesData = countriesResponse.data;
+    // Validate the response data
+    if (!Array.isArray(countriesData)) {
+      throw new Error('Invalid data format received from external API');
+    }
+
+    const exchangeRatesResponse = await axios.get(EXCHANGE_RATE_API_URL);
+    if (!exchangeRatesResponse.data || !exchangeRatesResponse.data.rates) {
+      throw new Error('Failed to fetch exchange rates');
+    }
+    
     const rates = exchangeRatesResponse.data.rates;
     const refreshTime = new Date();
 
-    if (!countriesData || !rates) {
-      return res.status(503).json({ error: "External data source unavailable", details: "Invalid data received from external APIs." });
-    }
-
     const upsertPromises = countriesData.map(async (country) => {
-      const currencyInfo = country.currencies && country.currencies[0];
-      const currency_code = currencyInfo ? currencyInfo.code : null;
+      // Updated to match v2 API response structure
+      const currencyInfo = country.currencies ? Object.values(country.currencies)[0] : null;
+      const currency_code = currencyInfo ? Object.keys(country.currencies)[0] : null;
 
       let exchange_rate = null;
       if (currency_code && rates[currency_code]) {
@@ -56,7 +58,7 @@ const refreshCountries = asyncHandler(async (req, res, next) => {
 
       const countryPayload = {
         name: country.name,
-        capital: country.capital,
+        capital: country.capital ? country.capital[0] : null,
         region: country.region,
         population: country.population,
         flag_url: country.flag,
@@ -65,8 +67,9 @@ const refreshCountries = asyncHandler(async (req, res, next) => {
         estimated_gdp,
       };
 
+      const escapedName = escapeRegex(country.name);
       return Country.findOneAndUpdate(
-        { name: { $regex: new RegExp('^' + country.name + '$', 'i') } }, // Case-insensitive match
+        { name: { $regex: new RegExp('^' + escapedName + '$', 'i') } },
         countryPayload,
         { upsert: true, new: true, runValidators: true }
       );
@@ -91,6 +94,13 @@ const refreshCountries = asyncHandler(async (req, res, next) => {
       countries_processed: updatedCountries.length
     });
 
+  } catch (error) {
+    console.error('Refresh countries error:', error);
+    return res.status(500).json({
+      error: 'Internal server error',
+      message: error.message || 'Failed to refresh countries data'
+    });
+  }
 });
 
 const getCountries = asyncHandler(async (req, res, next) => {
