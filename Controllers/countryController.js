@@ -3,7 +3,6 @@ const fs = require('fs');
 const Country = require('../Models/Countries');
 const Status = require('../Models/Status');
 
-const { generateSummaryImage, IMAGE_PATH } = require('../Utils/imageGenerator');
 const COUNTRIES_API_URL = 'https://restcountries.com/v2/all?fields=name,capital,region,population,flag,currencies';
 const EXCHANGE_RATE_API_URL = 'https://open.er-api.com/v6/latest/USD';
 
