@@ -86,7 +86,7 @@ const refreshCountries = asyncHandler(async (req, res, next) => {
       { upsert: true }
     );
 
-    await generateSummaryImage();
+    //await generateSummaryImage();
 
     return res.status(200).json({
       status: "success",
